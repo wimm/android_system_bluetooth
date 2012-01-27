@@ -152,9 +152,14 @@ int bt_enable() {
     int ret = -1;
     int hci_sock = -1;
     int attempt;
-
+    //for_ticket455_s
+	set_bluetooth_power(0);
+	usleep(10000); 
+    //for_ticket455_e
     if (set_bluetooth_power(1) < 0) goto out;
-
+    //for_ticket455_s
+	sleep(2);
+    //for_ticket455_e
     LOGI("Starting hciattach daemon");
     if (property_set("ctl.start", "hciattach") < 0) {
         LOGE("Failed to start hciattach");
@@ -172,9 +177,19 @@ int bt_enable() {
         }
         close(hci_sock);
         usleep(10000);  // 10 ms retry delay
+
     }
     if (attempt == 0) {
         LOGE("%s: Timeout waiting for HCI device to come up", __FUNCTION__);
+	//for_ticket455_s
+        #if 1
+        //If hciattach failed,kill it then we can start hciattach deamon again.
+        LOGI("Stopping hciattach deamon");
+        if (property_set("ctl.stop", "hciattach") < 0) {
+        LOGE("Error stopping hciattach");
+        }
+        #endif
+        //for_ticket455_e
         goto out;
     }
 

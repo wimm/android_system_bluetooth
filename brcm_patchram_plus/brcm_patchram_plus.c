@@ -71,6 +71,11 @@
 #include <sys/termios.h>
 #endif
 
+// liuyuqiang 20100907 begin: add for getting MAC address
+#include <hardware_legacy/wifi.h>
+#include <cutils/log.h>
+// liuyuqiang 20100907 end: add for getting MAC address
+
 #include <string.h>
 #include <signal.h>
 
@@ -111,10 +116,28 @@ unsigned char hci_update_baud_rate[] = { 0x01, 0x18, 0xfc, 0x06, 0x00, 0x00,
 
 unsigned char hci_write_bd_addr[] = { 0x01, 0x01, 0xfc, 0x06, 
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
-
+/*johnny_for_BT_Power_Consumption
 unsigned char hci_write_sleep_mode[] = { 0x01, 0x27, 0xfc, 0x0c, 
-	0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00,
+	0x01, 0x10, 0x10, 0x01, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00,
 	0x00, 0x00 };
+unsigned char hci_write_sleep_mode[] = { 0x01, 0x27, 0xfc, 0x0c,
+        0x01, 0x00, 0x00, 0x01, 0x01, 0x00, 0x01, 0x01, 0x00, 0x00,
+        0x00, 0x01 };
+*/
+
+unsigned char hci_write_sleep_mode[] = { 
+    0x01,               // HCI packet
+    0x27, 0xfc,         // HCI_Set_Sleep_Mode_Param
+    0x0c,               // payload = 12 bytes
+    0x01,               // ???
+    0x01,               // Idle_Threshold_Host (~300ms) !=0
+    0x01,               // Idle_Threshold_HC (~300ms) !=0
+    0x01,               // BT_WAKE_Active_Mode high/low
+    0x01,               // HOST_WAKE_Active_Mode high/low
+    0x01,               // Allow_Host_Sleep_During_SCO
+    0x01,               // Combine_Sleep_Mode_And_LPM
+    0x00,               // Enable_Tristate_Control_Of_UART_Tx_Line
+    0x00, 0x00, 0x00, 0x00 };
 
 int
 parse_patchram(char *optarg)
@@ -499,9 +522,74 @@ proc_enable_hci()
 		fprintf(stderr, "Can't set hci protocol\n");
 		return;
 	}
-	fprintf(stderr, "Done setting line discpline\n");
+	if (debug) {
+        fprintf(stderr, "Done setting line discpline\n");
+    }
 	return;
 }
+
+/* Isaac, get mac address from system properties */
+int
+get_mac_from_env(char *bdaddr)
+{
+	property_get(ENV_MACADDR, bdaddr, NULL);
+
+	if ((0 == bdaddr[0]) || (strlen(bdaddr) != MAC_ADDR_LEN) ||
+	   (strncasecmp(bdaddr, CYBERTAN_ID, MAC_ID_LEN) != 0) ||
+	   (':' != bdaddr[11]) || (':' != bdaddr[14])) {
+		LOGD("===== mac address invalid =====");
+		return 1;	
+	} else {
+		LOGD("===== mac: %s =====", bdaddr);
+		return 0;
+	}
+}
+// function to make Mac addr + 1 as the BD_ADDR of the chip
+int
+mac2bd_addr(char *buf)
+{
+	unsigned bd[6];
+	unsigned addr_low;
+	int i;
+	if (!buf) {
+		printf("get null argument\n");
+		return -1;
+	}
+	sscanf(buf, "%02X:%02X:%02X:%02X:%02X:%02X", &bd[5], &bd[4], &bd[3], &bd[2], &bd[1], &bd[0]);
+	i = 0;
+	addr_low = 0;
+	while (i<3) {
+		addr_low += (bd[i] << (i * 8));
+		i++;
+	}
+	addr_low++;//just operate MAC address + 1
+	i = 0;
+	while (i<3) {
+		bd[i] = (addr_low >> (i * 8)) & 0xFF;
+		i++;
+	}
+	sprintf(buf, "%02X:%02X:%02X:%02X:%02X:%02X", bd[5], bd[4], bd[3], bd[2], bd[1], bd[0]);
+	return 0;
+}
+
+void
+read_mac_addr()
+{
+	char bdaddr[30];
+	if (get_mac_from_env(bdaddr)) {
+		if (get_mac_address(bdaddr)) {
+			return ;
+		}
+	}
+
+	LOGD("******************Get MAC ADDRESS:%s", bdaddr);
+	if (mac2bd_addr(bdaddr)) {
+		return ;
+	}
+	LOGD("******************Get BD  ADDRESS:%s", bdaddr);
+	parse_bdaddr(bdaddr);
+}
+// liuyuqiang 20100907 end: add for make BD_ADDR
 
 void
 read_default_bdaddr()
@@ -542,6 +630,8 @@ int
 main (int argc, char **argv)
 {
 	read_default_bdaddr();
+
+	read_mac_addr();// liuyuqiang 20100907 add for make BD_ADDR
 
 	parse_cmd_line(argc, argv);
 
