@@ -122,6 +122,11 @@
 #include <limits.h>
 #endif
 
+// liuyuqiang 20100907 begin: add for getting MAC address
+#include <hardware_legacy/wifi.h>
+#include <cutils/log.h>
+// liuyuqiang 20100907 end: add for getting MAC address
+
 #include <string.h>
 #include <signal.h>
 
@@ -137,9 +142,12 @@
 
 #endif //ANDROID
 
+
 #ifndef N_HCI
 #define N_HCI	15
 #endif
+
+#include <hardware_legacy/wifi.h>
 
 #define HCIUARTSETPROTO		_IOW('U', 200, int)
 #define HCIUARTGETPROTO		_IOR('U', 201, int)
@@ -152,6 +160,8 @@
 #define HCI_UART_LL		4
 
 typedef unsigned char uchar;
+//Tori add
+#define BTMACFILE "/system/etc/btmac"
 
 int uart_fd = -1;
 int hcdfile_fd = -1;
@@ -737,6 +747,93 @@ proc_enable_hci()
 }
 
 #ifdef ANDROID
+
+int
+get_mac_from_env(char *bdaddr)
+{
+//Tori Add for BT mac adress
+	int fd;
+	int ret;
+	char torimac[30];
+	torimac[0]='\0';
+	fd = open(BTMACFILE, O_RDWR);
+	ret = read(fd, torimac, 17);
+	torimac[17]='\0';
+	close(fd);
+
+	LOGD("========Tori mac address is %s========",torimac);
+	property_set(ENV_MACADDR, torimac);
+//end
+	property_get(ENV_MACADDR, bdaddr, NULL);
+
+	if ((0 == bdaddr[0]) || (strlen(bdaddr) != MAC_ADDR_LEN) ||
+	   (strncasecmp(bdaddr, CYBERTAN_ID, MAC_ID_LEN) != 0) ||
+	   (':' != bdaddr[11]) || (':' != bdaddr[14])) {
+		LOGD("===== mac address invalid =====");
+		return 1;	
+	} else {
+		LOGD("===== mac: %s =====", bdaddr);
+		return 0;
+	}
+}
+// function to make Mac addr + 1 as the BD_ADDR of the chip
+int
+mac2bd_addr(char *buf)
+{
+	unsigned bd[6];
+	unsigned addr_low;
+	int i;
+	if (!buf) {
+		printf("get null argument\n");
+		return -1;
+	}
+	sscanf(buf, "%02X:%02X:%02X:%02X:%02X:%02X", &bd[5], &bd[4], &bd[3], &bd[2], &bd[1], &bd[0]);
+	
+	i = 0;
+	addr_low = 0;
+	while (i<3) {
+		addr_low += (bd[i] << (i * 8));
+		i++;
+	}
+	addr_low++;//just operate MAC address + 1
+	i = 0;
+	while (i<3) {
+		bd[i] = (addr_low >> (i * 8)) & 0xFF;
+		i++;
+	}
+	sprintf(buf, "%02X:%02X:%02X:%02X:%02X:%02X", bd[5], bd[4], bd[3], bd[2], bd[1], bd[0]);
+	return 0;
+}
+
+void
+read_mac_addr()
+{
+	int fd;
+	char bdaddr[30];
+	if (get_mac_from_env(bdaddr)) {
+		if (get_mac_address(bdaddr)) {
+			return ;
+		}
+	}
+
+//Tori add for BT mac
+	fd = open(BTMACFILE,O_WRONLY);
+        write(fd,bdaddr,17);
+        close(fd);
+
+	LOGD("******************Get MAC ADDRESS:%s", bdaddr);
+	if (mac2bd_addr(bdaddr)) {
+		return ;
+	}
+	LOGD("******************Get BD  ADDRESS:%s", bdaddr);
+
+//Tori add for BT mac
+	if(17==strlen(bdaddr))
+        {
+		parse_bdaddr(bdaddr);
+	}
+}
+
 void
 read_default_bdaddr()
 {
@@ -751,8 +848,11 @@ read_default_bdaddr()
 
 	property_get("ro.bt.bdaddr_path", path, "");
 	if (path[0] == 0)
+	{
+		LOGD("Tori:PATH is empty!");
 		return;
-
+	}
+	
 	fd = open(path, O_RDONLY);
 	if (fd < 0) {
 		fprintf(stderr, "open(%s) failed: %s (%d)", path, strerror(errno),
@@ -787,6 +887,8 @@ main (int argc, char **argv)
 #ifdef ANDROID
 	read_default_bdaddr();
 #endif
+
+	read_mac_addr();
 
 	if (parse_cmd_line(argc, argv)) {
 		exit(1);
