@@ -12,7 +12,9 @@ LOCAL_SRC_FILES := brcm_patchram_plus.c
 
 LOCAL_MODULE := brcm_patchram_plus
 
-LOCAL_SHARED_LIBRARIES := libcutils
+LOCAL_SHARED_LIBRARIES := \
+	libcutils \
+	libhardware_legacy
 
 include $(BUILD_EXECUTABLE)
 

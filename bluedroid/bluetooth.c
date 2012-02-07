@@ -114,6 +114,8 @@ static int set_bluetooth_power(int on) {
     int ret = -1;
     const char buffer = (on ? '1' : '0');
 
+    LOGD("Turning bluetooth power %s", on ? "on" : "off");
+
     if (rfkill_id == -1) {
         if (init_rfkill()) goto out;
     }
@@ -155,6 +157,12 @@ int bt_enable() {
 
     if (set_bluetooth_power(1) < 0) goto out;
 
+/* Isaac 20110629 begin: wait a moment for BT power to be enabled */
+#ifdef BT_POWER_DELAY
+    sleep(BT_POWER_DELAY);
+#endif /* BT_POWER_DELAY */
+/* Isaac 20110629 begin: wait a moment for BT power to be enabled */
+
     LOGI("Starting hciattach daemon");
     if (property_set("ctl.start", "hciattach") < 0) {
         LOGE("Failed to start hciattach");
@@ -163,7 +171,15 @@ int bt_enable() {
 
     // Try for 10 seconds, this can only succeed once hciattach has sent the
     // firmware and then turned on hci device via HCIUARTSETPROTO ioctl
+/* Isaac 20110629 begin: Increase retry time for loading bcm4329 firmware */
+#ifdef BCM4329_FIRMWARE_CONSUME
+    LOGD("Try more %d times for loading bcm4329 firmware",
+         BCM4329_FIRMWARE_CONSUME);
+    for (attempt = 1000 + BCM4329_FIRMWARE_CONSUME; attempt > 0;  attempt--) {
+#else /* BCM4329_FIRMWARE_CONSUME */
     for (attempt = 1000; attempt > 0;  attempt--) {
+#endif /* BCM4329_FIRMWARE_CONSUME */
+/* Isaac 20110629 end: Increase retry time for loading bcm4329 firmware */
         hci_sock = create_hci_sock();
         if (hci_sock < 0) goto out;
 
@@ -189,6 +205,14 @@ int bt_enable() {
 
 out:
     if (hci_sock >= 0) close(hci_sock);
+    /* Isaac 20110625 begin: Turn BT power off if failed */
+    if (ret != 0) {
+        property_set("ctl.stop", "bluetoothd");
+        property_set("ctl.stop", "hciattach");
+        if (check_bluetooth_power() != 0)
+            set_bluetooth_power(0);
+    }
+    /* Isaac 20110625 end: Turn BT power off if failed */
     return ret;
 }
 
@@ -222,6 +246,14 @@ int bt_disable() {
 
 out:
     if (hci_sock >= 0) close(hci_sock);
+    /* Isaac 20110625 begin: Turn BT power off if failed */
+    if (ret != 0) {
+        property_set("ctl.stop", "bluetoothd");
+        property_set("ctl.stop", "hciattach");
+        if (check_bluetooth_power() != 0)
+            set_bluetooth_power(0);
+    }
+    /* Isaac 20110625 end: Turn BT power off if failed */
     return ret;
 }
 
